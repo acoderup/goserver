@@ -1,4 +1,4 @@
-module goserver
+module github.com/acoderup/goserver
 
 go 1.22.5
 
