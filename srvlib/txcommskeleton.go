@@ -69,5 +69,5 @@ func (tcs *TxCommSkeleton) GetAreaID() int {
 }
 
 func init() {
-	transact.RegisteTxCommSkeleton("github.com/acoderup/goserver/srvlib/txcommskeleton", &TxCommSkeleton{})
+	transact.RegisteTxCommSkeleton("github.com/idealeak/goserver/srvlib/txcommskeleton", &TxCommSkeleton{})
 }

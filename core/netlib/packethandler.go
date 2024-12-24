@@ -45,3 +45,15 @@ func GetHandler(packetId int) Handler {
 
 	return nil
 }
+
+func Register(mainId int, msgType interface{}, h func(session *Session, packetId int, data interface{}) error) {
+	f := func() interface{} {
+		tp := reflect.TypeOf(msgType)
+		if tp.Kind() == reflect.Ptr {
+			tp = tp.Elem()
+		}
+		return reflect.New(tp).Interface()
+	}
+	RegisterFactory(mainId, PacketFactoryWrapper(f))
+	RegisterHandler(mainId, HandlerWrapper(h))
+}

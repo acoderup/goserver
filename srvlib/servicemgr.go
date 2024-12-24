@@ -23,7 +23,7 @@ type ServiceRegisteListener interface {
 }
 
 type serviceMgr struct {
-	servicesPool map[int32]map[int32]*protocol.ServiceInfo
+	servicesPool map[int32]map[int32]*protocol.ServiceInfo // srvType:srvId:ServiceInfo
 	listeners    []ServiceRegisteListener
 }
 
@@ -33,11 +33,12 @@ func (this *serviceMgr) AddListener(l ServiceRegisteListener) ServiceRegisteList
 }
 
 func (this *serviceMgr) RegisteService(s *netlib.Session, services []*protocol.ServiceInfo) {
-	if this == nil || services == nil || len(services) == 0 {
+	if this == nil || s == nil || len(services) == 0 {
 		return
 	}
 
-	s.SetAttribute(SessionAttributeServiceInfo, services)
+	// 根据对方提供的服务信息获取对方应该和那些其它服务建立连接，然后让其它服务连接这个刚注册的服务（service）
+	s.SetAttribute(SessionAttributeServiceInfo, services) // 保存监听服务配置
 	for _, service := range services {
 		srvid := service.GetSrvId()
 		srvtype := service.GetSrvType()
@@ -46,24 +47,27 @@ func (this *serviceMgr) RegisteService(s *netlib.Session, services []*protocol.S
 		}
 		if _, exist := this.servicesPool[srvtype][srvid]; !exist {
 			this.servicesPool[srvtype][srvid] = service
-			logger.Logger.Info("(this *serviceMgr) RegisteService: ", service.GetSrvName(), " Ip=", service.GetIp(), " Port=", service.GetPort())
+			logger.Logger.Infof("服务注册：%v", service)
 			pack := &protocol.SSServiceInfo{}
 			pack.Service = service
 			sessiontypes := GetCareSessionsByService(service.GetSrvType())
 			areaId := service.GetAreaId()
 			for _, v1 := range sessiontypes {
+				// 地区和服务类型
 				ServerSessionMgrSington.Broadcast(int(protocol.SrvlibPacketID_PACKET_SS_SERVICE_INFO), pack, int(areaId), int(v1))
+				logger.Logger.Infof("广播服务信息：%v ==> AreaId:%v ServerType:%v", service.GetSrvName(), areaId, v1)
 			}
 
-			if len(this.listeners) != 0 {
-				for _, l := range this.listeners {
-					l.OnRegiste(services)
-				}
-			}
+			//if len(this.listeners) != 0 {
+			//	for _, l := range this.listeners {
+			//		l.OnRegiste(services)
+			//	}
+			//}
 		}
 	}
 }
 
+// UnregisteService 广播服务关闭
 func (this *serviceMgr) UnregisteService(service *protocol.ServiceInfo) {
 	if this == nil || service == nil {
 		return
@@ -74,24 +78,26 @@ func (this *serviceMgr) UnregisteService(service *protocol.ServiceInfo) {
 	if v, has := this.servicesPool[srvtype]; has {
 		if ss, exist := v[srvid]; exist && ss == service {
 			delete(v, srvid)
-			logger.Logger.Info("(this *serviceMgr) UnregisteService: ", srvid)
+			logger.Logger.Infof("服务关闭：%v", service)
 			pack := &protocol.SSServiceShut{}
 			pack.Service = service
 			sessiontypes := GetCareSessionsByService(service.GetSrvType())
 			areaId := service.GetAreaId()
 			for _, v1 := range sessiontypes {
 				ServerSessionMgrSington.Broadcast(int(protocol.SrvlibPacketID_PACKET_SS_SERVICE_SHUT), pack, int(areaId), int(v1))
+				logger.Logger.Infof("广播服务关闭：%v ==> AreaId:%v ServerType:%v", service.GetSrvName(), areaId, v1)
 			}
-			if len(this.listeners) != 0 {
-				for _, l := range this.listeners {
-					l.OnUnregiste(service)
-				}
-			}
+			//if len(this.listeners) != 0 {
+			//	for _, l := range this.listeners {
+			//		l.OnUnregiste(service)
+			//	}
+			//}
 		}
 	}
 
 }
 
+// OnRegiste 服务器注册
 func (this *serviceMgr) OnRegiste(s *netlib.Session) {
 	if this == nil || s == nil {
 		return
@@ -100,6 +106,7 @@ func (this *serviceMgr) OnRegiste(s *netlib.Session) {
 	if s.GetAttribute(SessionAttributeServiceFlag) == nil {
 		return
 	}
+	// 查看已存在的服务信息列表找当前服务器需要建立连接的服务，然后建立连接
 	attr := s.GetAttribute(SessionAttributeServerInfo)
 	if attr != nil {
 		if srvInfo, ok := attr.(*protocol.SSSrvRegiste); ok && srvInfo != nil {
@@ -110,8 +117,8 @@ func (this *serviceMgr) OnRegiste(s *netlib.Session) {
 						func(si *protocol.ServiceInfo, sInfo *protocol.SSSrvRegiste) {
 							pack := &protocol.SSServiceInfo{}
 							pack.Service = si
-							logger.Logger.Info("serviceMgr.OnRegiste Server Type=", sInfo.GetType(), " Id=", sInfo.GetId(), " Name=", sInfo.GetName(), " careful => Service=", si)
 							s.Send(int(protocol.SrvlibPacketID_PACKET_SS_SERVICE_INFO), pack)
+							logger.Logger.Infof("建立连接： client(%v)==>server(%v)", srvInfo.GetName(), si.GetSrvName())
 						}(v3, srvInfo)
 					}
 				}
@@ -121,6 +128,7 @@ func (this *serviceMgr) OnRegiste(s *netlib.Session) {
 }
 
 func (this *serviceMgr) OnUnregiste(s *netlib.Session) {
+
 }
 
 func (this *serviceMgr) ClearServiceBySession(s *netlib.Session) {
@@ -196,6 +204,7 @@ func (this *serviceMgr) ReportService(s *netlib.Session) {
 			pack.Services = append(pack.Services, si)
 		}
 		s.Send(int(protocol.SrvlibPacketID_PACKET_SS_SERVICE_REGISTE), pack)
+		logger.Logger.Infof("目标服务器：%v 发送服务信息：%v", s.GetSessionConfig().Name, pack)
 	}
 }
 
@@ -216,7 +225,6 @@ func (this *serviceMgr) GetService(srvtype, srvid int32) *protocol.ServiceInfo {
 }
 
 func init() {
-
 	// service registe
 	netlib.RegisterFactory(int(protocol.SrvlibPacketID_PACKET_SS_SERVICE_REGISTE), netlib.PacketFactoryWrapper(func() interface{} {
 		return &protocol.SSServiceRegiste{}

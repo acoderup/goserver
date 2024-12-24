@@ -9,7 +9,8 @@ const (
 	ManagerServiceType     = 5
 	WorldServiceType       = 6
 	GameServiceType        = 7
-	MaxServiceType         = 8
+	RankServiceType        = 8
+	MaxServiceType         = 9
 )
 
 const (
@@ -21,5 +22,6 @@ const (
 	ManagerServerType = 5
 	WorldServerType   = 6
 	GameServerType    = 7
-	MaxServerType     = 8
+	RankServerType    = 8
+	MaxServerType     = 9
 )

@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/acoderup/goserver/core/basic"
 	"math/rand"
 	"time"
 
+	"github.com/acoderup/goserver/core/basic"
 	"github.com/acoderup/goserver/core/module"
 	"github.com/acoderup/goserver/core/task"
 )

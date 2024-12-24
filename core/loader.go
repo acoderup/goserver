@@ -1,97 +1,100 @@
 package core
 
 import (
-	"encoding/json"
 	"io"
-	"io/ioutil"
-	"path"
+	"strings"
 
 	"github.com/acoderup/goserver/core/logger"
+	"github.com/acoderup/goserver/core/viperx"
 )
 
+var packages = make(map[string]Package)
+var packagesLoaded = make(map[string]bool)
+
+// Package 功能包
+// 只做初始化，不要依赖其它功能包
 type Package interface {
 	Name() string
 	Init() error
 	io.Closer
 }
-type ConfigFileEncryptorHook interface {
-	IsCipherText([]byte) bool
-	Encrypt([]byte) []byte
-	Decrtypt([]byte) []byte
-}
 
-var packages = make(map[string]Package)
-var packagesLoaded = make(map[string]bool)
-var configFileEH ConfigFileEncryptorHook
-
+// RegistePackage 注册功能包
 func RegistePackage(p Package) {
 	packages[p.Name()] = p
 }
 
-func IsPackageRegisted(name string) bool {
+// IsPackageRegistered 判断功能包是否已经注册
+func IsPackageRegistered(name string) bool {
 	if _, exist := packages[name]; exist {
 		return true
 	}
 	return false
 }
 
+// IsPackageLoaded 判断功能包是否已经加载
 func IsPackageLoaded(name string) bool {
 	if _, exist := packagesLoaded[name]; exist {
 		return true
 	}
 	return false
 }
-func RegisterConfigEncryptor(h ConfigFileEncryptorHook) {
-	configFileEH = h
+
+// RegisterConfigEncryptor 注册配置文件加密器
+func RegisterConfigEncryptor(h viperx.ConfigFileEncryptorHook) {
+	viperx.RegisterConfigEncryptor(h)
 }
+
+// LoadPackages 加载功能包
 func LoadPackages(configFile string) {
-	//logger.Logger.Infof("Build time is: %s", BuildTime())
-	switch path.Ext(configFile) {
-	case ".json":
-		fileBuff, err := ioutil.ReadFile(configFile)
-		if err != nil {
-			logger.Logger.Errorf("Error while reading config file %s: %s", configFile, err)
-			break
+	val := strings.Split(configFile, ".")
+	if len(val) != 2 {
+		panic("config file name error")
+	}
+
+	vp := viperx.GetViper(val[0], val[1])
+
+	var err error
+	var notFoundConfig []string
+	var notFoundPackage []string
+	for k := range vp.AllSettings() {
+		if _, ok := packages[k]; !ok {
+			notFoundPackage = append(notFoundPackage, k)
+			continue
 		}
-		if configFileEH != nil {
-			if configFileEH.IsCipherText(fileBuff) {
-				fileBuff = configFileEH.Decrtypt(fileBuff)
-			}
+
+		name := k
+		pkg := packages[k]
+		if err = vp.UnmarshalKey(k, pkg); err != nil {
+			logger.Logger.Errorf("Package %s: Error while unmarshalling from config file %s: %v", name, configFile, err)
+			continue
 		}
-		var fileData interface{}
-		err = json.Unmarshal(fileBuff, &fileData)
-		if err != nil {
-			break
+
+		if err = pkg.Init(); err != nil {
+			logger.Logger.Errorf("Package %s: Error while initializing from config file %s: %v", name, configFile, err)
+			continue
 		}
-		fileMap := fileData.(map[string]interface{})
-		for name, pkg := range packages {
-			if moduleData, ok := fileMap[name]; ok {
-				if data, ok := moduleData.(map[string]interface{}); ok {
-					modelBuff, _ := json.Marshal(data)
-					err = json.Unmarshal(modelBuff, &pkg)
-					if err != nil {
-						logger.Logger.Errorf("Error while unmarshalling JSON from config file %s: %s", configFile, err)
-					} else {
-						err = pkg.Init()
-						if err != nil {
-							logger.Logger.Errorf("Error while initializing package %s: %s", pkg.Name(), err)
-						} else {
-							packagesLoaded[pkg.Name()] = true
-							logger.Logger.Infof("package [%16s] load success", pkg.Name())
-						}
-					}
-				} else {
-					logger.Logger.Errorf("Package %v init data unmarshal failed.", pkg.Name())
-				}
-			} else {
-				logger.Logger.Errorf("Package %v init data not exist.", pkg.Name())
-			}
+
+		packagesLoaded[pkg.Name()] = true
+		logger.Logger.Infof("package [%16s] load success", pkg.Name())
+	}
+
+	for k := range packages {
+		if !IsPackageLoaded(k) {
+			notFoundConfig = append(notFoundConfig, k)
 		}
-	default:
-		panic("Unsupported config file: " + configFile)
+	}
+
+	if len(notFoundConfig) > 0 {
+		logger.Logger.Warnf("package load success, not found config: %v", notFoundConfig)
+	}
+
+	if len(notFoundPackage) > 0 {
+		logger.Logger.Warnf("package load success, not found package: %v", notFoundPackage)
 	}
 }
 
+// ClosePackages 关闭功能包
 func ClosePackages() {
 	for _, pkg := range packages {
 		err := pkg.Close()

@@ -1,10 +1,13 @@
 package handler
 
 import (
-	"github.com/acoderup/goserver/core/logger"
 	"github.com/acoderup/goserver/core/netlib"
 	"github.com/acoderup/goserver/srvlib"
 )
+
+/*
+ 服务注册，一个服务器可以提供多个服务端口
+*/
 
 // 依赖于 serversessionregiste
 // 需要挂接在serversessionregiste之后
@@ -26,10 +29,10 @@ func (this *SessionHandlerServiceRegiste) GetInterestOps() uint {
 func (this *SessionHandlerServiceRegiste) OnSessionOpened(s *netlib.Session) {
 	sc := s.GetSessionConfig()
 	if sc.IsClient {
-		logger.Logger.Trace("SessionHandlerServiceRegiste:OnSessionOpened ReportService->", sc.Name)
 		/*报告自己的监听信息*/
 		srvlib.ServiceMgr.ReportService(s)
 	} else {
+		// 这里标记只有监听端才会触发自动连接
 		s.SetAttribute(srvlib.SessionAttributeServiceFlag, 1)
 	}
 }
@@ -37,7 +40,6 @@ func (this *SessionHandlerServiceRegiste) OnSessionOpened(s *netlib.Session) {
 func (this *SessionHandlerServiceRegiste) OnSessionClosed(s *netlib.Session) {
 	sc := s.GetSessionConfig()
 	if !sc.IsClient {
-		logger.Logger.Warn("SessionHandlerServiceRegiste:OnSessionClosed ClearServiceBySession")
 		srvlib.ServiceMgr.ClearServiceBySession(s)
 	}
 }

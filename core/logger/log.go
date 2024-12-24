@@ -8,11 +8,16 @@ import (
 
 var (
 	Logger seelog.LoggerInterface
+	err    error
 )
 
 func init() {
-	Logger, _ = seelog.LoggerFromConfigAsFile("logger.xml")
-	seelog.ReplaceLogger(Logger)
+	Logger, err = seelog.LoggerFromConfigAsFile("logger.xml")
+	if err == nil {
+		seelog.ReplaceLogger(Logger)
+	} else {
+		Logger = seelog.Default
+	}
 }
 
 func Reload(fileName string) error {

@@ -1,9 +1,5 @@
 package rabbitmq
 
-//
-// All credit to Mondo
-//
-
 import (
 	"crypto/tls"
 	"regexp"
@@ -14,9 +10,14 @@ import (
 	"github.com/streadway/amqp"
 )
 
+/*
+  RabbitMQ 连接封装
+  带自动重连
+*/
+
 var (
 	DefaultExchange = Exchange{
-		Name: "acoderup",
+		Name: "idealeak",
 	}
 	DefaultRabbitURL      = "amqp://guest:guest@127.0.0.1:5672"
 	DefaultPrefetchCount  = 0
@@ -39,28 +40,28 @@ var (
 	dialConfig = amqp.DialConfig
 )
 
-type rabbitMQConn struct {
-	Connection      *amqp.Connection
-	Channel         *rabbitMQChannel
-	ExchangeChannel *rabbitMQChannel
-	exchange        Exchange
-	url             string
-	prefetchCount   int
-	prefetchGlobal  bool
-
-	sync.Mutex
-	connected bool
-	close     chan bool
-
-	waitConnection chan struct{}
-}
-
 // Exchange is the rabbitmq exchange
 type Exchange struct {
 	// Name of the exchange
 	Name string
 	// Whether its persistent
 	Durable bool
+}
+
+type rabbitMQConn struct {
+	Connection      *amqp.Connection
+	Channel         *rabbitMQChannel
+	ExchangeChannel *rabbitMQChannel
+	exchange        Exchange
+	url             string
+	prefetchCount   int  // 每次分发给消费者的最大消息数量
+	prefetchGlobal  bool // 是否对整个 channel 生效
+
+	sync.Mutex
+	connected bool
+
+	close          chan bool     // 关闭信号
+	WaitConnection chan struct{} // 建立连接中
 }
 
 func newRabbitMQConn(ex Exchange, urls []string, prefetchCount int, prefetchGlobal bool) *rabbitMQConn {
@@ -78,105 +79,9 @@ func newRabbitMQConn(ex Exchange, urls []string, prefetchCount int, prefetchGlob
 		prefetchCount:  prefetchCount,
 		prefetchGlobal: prefetchGlobal,
 		close:          make(chan bool),
-		waitConnection: make(chan struct{}),
+		WaitConnection: make(chan struct{}),
 	}
-	// its bad case of nil == waitConnection, so close it at start
-	close(ret.waitConnection)
 	return ret
-}
-
-func (r *rabbitMQConn) connect(secure bool, config *amqp.Config) error {
-	// try connect
-	if err := r.tryConnect(secure, config); err != nil {
-		return err
-	}
-
-	// connected
-	r.Lock()
-	r.connected = true
-	r.Unlock()
-
-	// create reconnect loop
-	go r.reconnect(secure, config)
-	return nil
-}
-
-func (r *rabbitMQConn) reconnect(secure bool, config *amqp.Config) {
-	// skip first connect
-	var connect bool
-
-	for {
-		if connect {
-			// try reconnect
-			if err := r.tryConnect(secure, config); err != nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			// connected
-			r.Lock()
-			r.connected = true
-			r.Unlock()
-			//unblock resubscribe cycle - close channel
-			//at this point channel is created and unclosed - close it without any additional checks
-			close(r.waitConnection)
-		}
-
-		connect = true
-		notifyClose := make(chan *amqp.Error)
-		r.Connection.NotifyClose(notifyClose)
-
-		// block until closed
-		select {
-		case <-notifyClose:
-			// block all resubscribe attempt - they are useless because there is no connection to rabbitmq
-			// create channel 'waitConnection' (at this point channel is nil or closed, create it without unnecessary checks)
-			r.Lock()
-			r.connected = false
-			r.waitConnection = make(chan struct{})
-			r.Unlock()
-		case <-r.close:
-			return
-		}
-	}
-}
-
-func (r *rabbitMQConn) Connect(secure bool, config *amqp.Config) error {
-	r.Lock()
-
-	// already connected
-	if r.connected {
-		r.Unlock()
-		return nil
-	}
-
-	// check it was closed
-	select {
-	case <-r.close:
-		r.close = make(chan bool)
-	default:
-		// no op
-		// new conn
-	}
-
-	r.Unlock()
-
-	return r.connect(secure, config)
-}
-
-func (r *rabbitMQConn) Close() error {
-	r.Lock()
-	defer r.Unlock()
-
-	select {
-	case <-r.close:
-		return nil
-	default:
-		close(r.close)
-		r.connected = false
-	}
-
-	return r.Connection.Close()
 }
 
 func (r *rabbitMQConn) tryConnect(secure bool, config *amqp.Config) error {
@@ -216,6 +121,98 @@ func (r *rabbitMQConn) tryConnect(secure bool, config *amqp.Config) error {
 	r.ExchangeChannel, err = newRabbitChannel(r.Connection, r.prefetchCount, r.prefetchGlobal)
 
 	return err
+}
+
+func (r *rabbitMQConn) connect(secure bool, config *amqp.Config) error {
+	// try connect
+	if err := r.tryConnect(secure, config); err != nil {
+		return err
+	}
+
+	// connected
+	r.Lock()
+	r.connected = true
+	r.Unlock()
+
+	close(r.WaitConnection)
+	return nil
+}
+
+func (r *rabbitMQConn) reconnect(secure bool, config *amqp.Config) {
+	// skip first connect
+	var connect bool
+
+	for {
+		if connect {
+			// try reconnect
+			select {
+			case <-r.close:
+				return
+			default:
+				if err := r.connect(secure, config); err != nil {
+					time.Sleep(time.Second)
+					continue
+				}
+			}
+		}
+
+		connect = true
+		notifyClose := make(chan *amqp.Error)
+		r.Connection.NotifyClose(notifyClose)
+
+		// block until closed
+		select {
+		case <-notifyClose:
+			// block all resubscribe attempt - they are useless because there is no connection to rabbitmq
+			// create channel 'WaitConnection' (at this point channel is nil or closed, create it without unnecessary checks)
+			r.Lock()
+			r.connected = false
+			r.WaitConnection = make(chan struct{})
+			r.Unlock()
+		case <-r.close:
+			return
+		}
+	}
+}
+
+func (r *rabbitMQConn) Connect(secure bool, config *amqp.Config) error {
+	r.Lock()
+	if r.connected {
+		r.Unlock()
+		return nil
+	}
+	r.Unlock()
+
+	// check it was closed
+	select {
+	case <-r.close:
+		r.close = make(chan bool)
+	default:
+		// no op
+		// new conn
+	}
+
+	err := r.connect(secure, config)
+	if err == nil {
+		go r.reconnect(secure, config)
+	}
+
+	return err
+}
+
+func (r *rabbitMQConn) Close() error {
+	r.Lock()
+	defer r.Unlock()
+
+	select {
+	case <-r.close:
+		return nil
+	default:
+		close(r.close)
+		r.connected = false
+	}
+
+	return r.Connection.Close()
 }
 
 func (r *rabbitMQConn) Consume(queue, key string, headers amqp.Table, qArgs amqp.Table, autoAck, durableQueue bool) (*rabbitMQChannel, <-chan amqp.Delivery, error) {

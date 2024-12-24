@@ -3,11 +3,13 @@ package netlib
 
 import (
 	"fmt"
+	"github.com/xtaci/kcp-go"
+	"strconv"
+	"time"
+
 	"github.com/acoderup/goserver/core/logger"
 	"github.com/acoderup/goserver/core/utils"
-	"strconv"
 	"sync/atomic"
-	"time"
 )
 
 type UdpConnector struct {

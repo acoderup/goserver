@@ -230,6 +230,7 @@ func (t *baseTask) sendRsp() {
 	}
 }
 
+// Start 启动独立的一个协程，相当于 go 关键字
 func (t *baseTask) Start() {
 	go t.imp.run(nil)
 }
@@ -246,10 +247,12 @@ func (t *baseTask) GetRunTime() time.Duration {
 	return time.Now().Sub(t.tStart)
 }
 
+// StartByExecutor 根据名称的哈希值选择一个协程，在协程中执行（框架启动时默认会创建几个协程）
 func (t *baseTask) StartByExecutor(name string) bool {
 	return sendTaskReqToExecutor(t, name, "")
 }
 
+// StartByFixExecutor 根据名称创建一个协程，如果协程已经存在，相同名称的任务会在同一个协程中执行
 func (t *baseTask) StartByFixExecutor(name string) bool {
 	return sendTaskReqToFixExecutor(t, name, "")
 }
@@ -258,10 +261,12 @@ func (t *baseTask) BroadcastToAllExecutor() bool {
 	return sendTaskReqToAllExecutor(t)
 }
 
+// StartByGroupExecutor 在 StartByExecutor 前根据gname分组
 func (t *baseTask) StartByGroupExecutor(gname string, name string) bool {
 	return sendTaskReqToExecutor(t, name, gname)
 }
 
+// StartByGroupFixExecutor 在 StartByFixExecutor 前根据gname分组
 func (t *baseTask) StartByGroupFixExecutor(name, gname string) bool {
 	return sendTaskReqToFixExecutor(t, name, gname)
 }

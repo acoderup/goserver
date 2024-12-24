@@ -260,10 +260,6 @@ func (this *ModuleMgr) tick() {
 func (this *ModuleMgr) fini() {
 	core.Terminate(this.Object)
 	this.state = ModuleStateInvalid
-	err := core.ExecuteHook(core.HOOK_AFTER_STOP)
-	if err != nil {
-		logger.Logger.Error("ExecuteHook(HOOK_BEFORE_START) error", err)
-	}
 	logger.Logger.Info("=============ModuleMgr fini=============")
 	logger.Logger.Flush()
 }
@@ -333,4 +329,8 @@ func Start() *utils.Waitor {
 
 func Stop() {
 	AppModule.Close()
+	err := core.ExecuteHook(core.HOOK_AFTER_STOP)
+	if err != nil {
+		logger.Logger.Error("ExecuteHook(HOOK_BEFORE_START) error", err)
+	}
 }

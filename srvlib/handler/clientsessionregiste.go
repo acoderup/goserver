@@ -1,10 +1,13 @@
-// SessionHandlerClientRegiste
 package handler
 
 import (
 	"github.com/acoderup/goserver/core/netlib"
 	"github.com/acoderup/goserver/srvlib"
 )
+
+/*
+ 保存所有连接
+*/
 
 var (
 	SessionHandlerClientRegisteName = "session-client-registe"

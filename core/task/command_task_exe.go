@@ -16,6 +16,7 @@ func (ttc *taskExeCommand) Done(o *basic.Object) error {
 	return ttc.t.run(o)
 }
 
+// SendTaskExe 将任务发送给一个worker处理
 func SendTaskExe(o *basic.Object, t Task) bool {
 	t.setBeforeQueCnt(o.GetPendingCommandCnt())
 	return o.SendCommand(&taskExeCommand{t: t}, true)

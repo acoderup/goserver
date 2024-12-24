@@ -11,33 +11,11 @@ import (
 	"github.com/streadway/amqp"
 )
 
-type rbroker struct {
-	conn           *rabbitMQConn
-	addrs          []string
-	opts           broker.Options
-	prefetchCount  int
-	prefetchGlobal bool
-	mtx            sync.Mutex
-	wg             sync.WaitGroup
-}
-
-type subscriber struct {
-	mtx          sync.Mutex
-	mayRun       bool
-	opts         broker.SubscribeOptions
-	topic        string
-	ch           *rabbitMQChannel
-	durableQueue bool
-	queueArgs    map[string]interface{}
-	r            *rbroker
-	fn           func(msg amqp.Delivery)
-	headers      map[string]interface{}
-}
-
+// publication Event
 type publication struct {
 	d   amqp.Delivery
 	m   *broker.Message
-	t   string
+	t   string // RouteKey
 	err error
 }
 
@@ -55,6 +33,22 @@ func (p *publication) Topic() string {
 
 func (p *publication) Message() *broker.Message {
 	return p.m
+}
+
+type subscriber struct {
+	mtx    sync.Mutex
+	mayRun bool
+
+	// config
+	opts         broker.SubscribeOptions
+	topic        string
+	durableQueue bool
+	queueArgs    map[string]interface{}
+	headers      map[string]interface{}
+
+	ch *rabbitMQChannel
+	r  *myBroker
+	fn func(msg amqp.Delivery)
 }
 
 func (s *subscriber) Options() broker.SubscribeOptions {
@@ -96,7 +90,7 @@ func (s *subscriber) resubscribe() {
 			//yep, its shutdown case
 			return
 			//wait until we reconect to rabbit
-		case <-s.r.conn.waitConnection:
+		case <-s.r.conn.WaitConnection:
 		}
 
 		// it may crash (panic) in case of Consume without connection, so recheck it
@@ -138,7 +132,34 @@ func (s *subscriber) resubscribe() {
 	}
 }
 
-func (r *rbroker) Publish(topic string, msg *broker.Message, opts ...broker.PublishOption) error {
+type myBroker struct {
+	conn           *rabbitMQConn
+	addrs          []string
+	opts           broker.Options
+	prefetchCount  int
+	prefetchGlobal bool
+	mtx            sync.Mutex
+	wg             sync.WaitGroup
+}
+
+func NewBroker(opts ...broker.Option) broker.Broker {
+	options := broker.Options{
+		Context: context.Background(),
+	}
+
+	for _, o := range opts {
+		o(&options)
+	}
+
+	return &myBroker{
+		addrs: options.Addrs,
+		opts:  options,
+	}
+}
+
+// Publish 发送消息
+// 可设置消息的持久化、优先级、过期时间等属性
+func (r *myBroker) Publish(topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	m := amqp.Publishing{
 		Body:    msg.Body,
 		Headers: amqp.Table{},
@@ -170,7 +191,10 @@ func (r *rbroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 	return r.conn.Publish(r.conn.exchange.Name, topic, m)
 }
 
-func (r *rbroker) Subscribe(topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
+// Subscribe 创建消费者
+// 默认开启自动确认消息, 使用broker.DisableAutoAck()关闭
+// 关闭自动确认消息后使用 AckOnSuccess() 可以根据handler的错误信息自动确认或者拒绝消息
+func (r *myBroker) Subscribe(topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	var ackSuccess bool
 
 	if r.conn == nil {
@@ -211,7 +235,7 @@ func (r *rbroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 		headers = h
 	}
 
-	if bval, ok := ctx.Value(ackSuccessKey{}).(bool); ok && bval {
+	if su, ok := ctx.Value(ackSuccessKey{}).(bool); ok && su {
 		opt.AutoAck = false
 		ackSuccess = true
 	}
@@ -227,6 +251,7 @@ func (r *rbroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 		}
 		p := &publication{d: msg, m: m, t: msg.RoutingKey}
 		p.err = handler(p)
+		// AutoAck为false时根据有没有错误自动确认或者重新入队
 		if p.err == nil && ackSuccess && !opt.AutoAck {
 			msg.Ack(false)
 		} else if p.err != nil && !opt.AutoAck {
@@ -234,30 +259,30 @@ func (r *rbroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 		}
 	}
 
-	sret := &subscriber{topic: topic, opts: opt, mayRun: true, r: r,
+	s := &subscriber{topic: topic, opts: opt, mayRun: true, r: r,
 		durableQueue: durableQueue, fn: fn, headers: headers, queueArgs: qArgs}
 
-	go sret.resubscribe()
+	go s.resubscribe()
 
-	return sret, nil
+	return s, nil
 }
 
-func (r *rbroker) Options() broker.Options {
+func (r *myBroker) Options() broker.Options {
 	return r.opts
 }
 
-func (r *rbroker) String() string {
+func (r *myBroker) String() string {
 	return "rabbitmq"
 }
 
-func (r *rbroker) Address() string {
+func (r *myBroker) Address() string {
 	if len(r.addrs) > 0 {
 		return r.addrs[0]
 	}
 	return ""
 }
 
-func (r *rbroker) Init(opts ...broker.Option) error {
+func (r *myBroker) Init(opts ...broker.Option) error {
 	for _, o := range opts {
 		o(&r.opts)
 	}
@@ -265,7 +290,8 @@ func (r *rbroker) Init(opts ...broker.Option) error {
 	return nil
 }
 
-func (r *rbroker) Connect() error {
+// Connect 建立连接
+func (r *myBroker) Connect() error {
 	if r.conn == nil {
 		r.conn = newRabbitMQConn(r.getExchange(), r.opts.Addrs, r.getPrefetchCount(), r.getPrefetchGlobal())
 	}
@@ -281,7 +307,9 @@ func (r *rbroker) Connect() error {
 	return r.conn.Connect(r.opts.Secure, &conf)
 }
 
-func (r *rbroker) Disconnect() error {
+// Disconnect 停止消费者后断开连接
+// 等待消费者停止消费
+func (r *myBroker) Disconnect() error {
 	if r.conn == nil {
 		return errors.New("connection is nil")
 	}
@@ -290,22 +318,7 @@ func (r *rbroker) Disconnect() error {
 	return ret
 }
 
-func NewBroker(opts ...broker.Option) broker.Broker {
-	options := broker.Options{
-		Context: context.Background(),
-	}
-
-	for _, o := range opts {
-		o(&options)
-	}
-
-	return &rbroker{
-		addrs: options.Addrs,
-		opts:  options,
-	}
-}
-
-func (r *rbroker) getExchange() Exchange {
+func (r *myBroker) getExchange() Exchange {
 
 	ex := DefaultExchange
 
@@ -320,14 +333,14 @@ func (r *rbroker) getExchange() Exchange {
 	return ex
 }
 
-func (r *rbroker) getPrefetchCount() int {
+func (r *myBroker) getPrefetchCount() int {
 	if e, ok := r.opts.Context.Value(prefetchCountKey{}).(int); ok {
 		return e
 	}
 	return DefaultPrefetchCount
 }
 
-func (r *rbroker) getPrefetchGlobal() bool {
+func (r *myBroker) getPrefetchGlobal() bool {
 	if e, ok := r.opts.Context.Value(prefetchGlobalKey{}).(bool); ok {
 		return e
 	}

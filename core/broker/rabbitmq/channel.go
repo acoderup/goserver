@@ -1,9 +1,5 @@
 package rabbitmq
 
-//
-// All credit to Mondo
-//
-
 import (
 	"errors"
 
@@ -11,12 +7,17 @@ import (
 	"github.com/streadway/amqp"
 )
 
+/*
+  RabbitMQ 通道封装
+*/
+
 type rabbitMQChannel struct {
 	uuid       string
 	connection *amqp.Connection
 	channel    *amqp.Channel
 }
 
+// newRabbitChannel 新建通道
 func newRabbitChannel(conn *amqp.Connection, prefetchCount int, prefetchGlobal bool) (*rabbitMQChannel, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {

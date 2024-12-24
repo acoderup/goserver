@@ -3,10 +3,12 @@ package netlib
 
 import (
 	"fmt"
-	"github.com/acoderup/goserver/core/logger"
-	"github.com/acoderup/goserver/core/utils"
+	"github.com/xtaci/kcp-go"
 	"net"
 	"strconv"
+
+	"github.com/acoderup/goserver/core/logger"
+	"github.com/acoderup/goserver/core/utils"
 	"sync/atomic"
 	"time"
 )

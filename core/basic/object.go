@@ -345,7 +345,10 @@ func (o *Object) ProcessCommand() {
 				doneCnt = 0
 			default:
 			}
-
+			// 在一个心跳周期内待处理任务过多
+			// cnt 剩余任务数量（待处理任务）
+			// MaxDone 允许最大待处理任务数量
+			// doneCnt 当前心跳周期内已经处理的任务数量
 			if doneCnt > o.opt.MaxDone || cnt > o.opt.MaxDone {
 				logger.Logger.Warn("(", name, ") object queue cmd count(", cnt, ") maxdone(", o.opt.MaxDone, ")", " this tick process cnt(", doneCnt, ")")
 			}

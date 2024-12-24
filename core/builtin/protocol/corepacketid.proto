@@ -3,7 +3,7 @@ package protocol;
 option go_package = ".;protocol";
 
 enum CoreBuiltinPacketID {
-    PACKET_COREBUILTIN_UNKNOW = 0;
+	PACKET_COREBUILTIN_UNKNOW = 0;
 	PACKET_SS_TX_START	= -1000;
 	PACKET_SS_TX_CMD	= -1001;
 	PACKET_SS_TX_RESULT = -1002;

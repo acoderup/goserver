@@ -40,7 +40,7 @@
     },
 
 	"tx": {
-		"TxSkeletonName": "github.com/acoderup/goserver/srvlib/txcommskeleton"
+		"TxSkeletonName": "github.com/idealeak/goserver/srvlib/txcommskeleton"
 	},
 	
     "core": {

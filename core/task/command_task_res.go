@@ -17,6 +17,7 @@ func (trc *taskResCommand) Done(o *basic.Object) error {
 	return nil
 }
 
+// SendTaskRes 将任务回调方法发送给一个节点处理
 func SendTaskRes(o *basic.Object, t Task, n CompleteNotify) bool {
 	if o == nil {
 		return false

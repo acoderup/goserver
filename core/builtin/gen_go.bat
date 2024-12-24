@@ -1,7 +1,7 @@
 @echo off
 set work_path=%cd%
 set proto_path=%cd%\protocol
-set protoc3=%cd%\..\..\bin\protoc-3.5.1-win32\bin\protoc.exe
+set protoc3=%cd%\..\..\bin\protoc-3.19.4-win64\bin\protoc.exe
 set protoc-gen-go-plugin-path="%cd%\..\..\bin\protoc-gen-go.exe"
 
 cd %proto_path%

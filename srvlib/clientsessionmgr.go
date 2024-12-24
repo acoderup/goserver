@@ -5,6 +5,11 @@ import (
 	"github.com/acoderup/goserver/core/netlib"
 )
 
+/*
+ 所有连接（一般是玩家客户端连接）
+ sid->session
+*/
+
 var (
 	SessionAttributeClientSession = &ClientSessionMgr{}
 	ClientSessionMgrSington       = &ClientSessionMgr{sessions: make(map[int64]*netlib.Session)}
